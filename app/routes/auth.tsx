@@ -10,7 +10,6 @@ const Auth = () => {
 
     useEffect(() => {
         if(auth.isAuthenticated ) navigate(next)
-    console.log(auth)
     }, [auth.isAuthenticated, next])
 
 
