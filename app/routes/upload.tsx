@@ -3,6 +3,9 @@ import {type FormEvent, useState} from "react"
 import FileUploader from "~/components/FileUploader";
 import * as fs from "node:fs";
 import {usePuterStore} from "~/lib/puter";
+import {convertPdfToImage} from "~/lib/pdf2img";
+import {generateUUID} from "~/lib/utils";
+import {prepareInstructions} from "../../constants";
 
 const Upload = () => {
     const { auth, isLoading, fs, ai, kv } = usePuterStore()
@@ -22,6 +25,39 @@ const Upload = () => {
         if (!uploadFile) return setStatusText('Error: failed to upload file')
 
         setStatusText('Converting to image')
+        const imageFile = await convertPdfToImage(file)
+        if(!imageFile.file) return setStatusText('Error: failed to upload file');
+
+        setStatusText('Uploading the image...')
+        const uploadedImage = await fs.upload([imageFile.file])
+        if (!uploadedImage) return setStatusText('Error: failed to upload image');
+
+        setStatusText('Preparing data...')
+
+        const uuid = generateUUID()
+        const data = {
+            id: uuid,
+            resumePath: uploadFile.path,
+            imagePath: uploadedImage.path,
+            companyName, jobTitle, jobDescription,
+            feedback: ''
+        }
+        await kv.set(`resume ${uuid}`, JSON.stringify(data));
+
+        setStatusText('Analyzing...')
+
+        const feedback = await ai.feedback(
+             uploadFile.path,
+            prepareInstructions({jobTitle, jobDescription })
+        )
+        if (!feedback) return setStatusText('Error: Failed to analyze resume');
+
+        const feedbackText = typeof feedback.message.content === 'string' ? feedback.message.content : feedback.message.content[0].text
+
+        data.feedback = JSON.parse(feedbackText)
+        await kv.set(`resume ${uuid}`, JSON.stringify(data));
+        setStatusText('Analysis complete, redirecting...')
+        console.log(data)
 
     }
 
@@ -34,6 +70,8 @@ const Upload = () => {
         const companyName = formData.get('company-name') as string
         const jobTitle = formData.get('job-title') as string
         const jobDescription = formData.get('job-description') as string
+
+        if(!file) return;
 
         handleAnalyze({companyName, jobTitle, jobDescription, file})
     }
